@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>PracticeHub</title>
+
+<style>
+body{
+  margin:0;
+  font-family:Segoe UI, sans-serif;
+  background:#eef2f7;
+}
+
+/* HEADER */
+header{
+  height:60px;
+  background:linear-gradient(135deg,#4f46e5,#6366f1);
+  color:white;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:0 20px;
+}
+header b{font-size:20px;}
+header button{
+  margin-left:8px;
+  padding:6px 12px;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+  font-weight:600;
+}
+.rootBtn{background:#22c55e;color:white;}
+.shareBtn{background:#facc15;}
+.logoutBtn{background:white;color:#4f46e5;}
+
+/* AUTH */
+.auth{
+  width:360px;
+  margin:100px auto;
+  background:white;
+  padding:30px;
+  border-radius:15px;
+  box-shadow:0 15px 40px rgba(0,0,0,.2);
+}
+.auth h2{text-align:center;color:#4f46e5;}
+.auth input{
+  width:100%;
+  padding:12px;
+  margin:10px 0;
+  border-radius:8px;
+  border:1px solid #ccc;
+}
+.auth button{
+  width:100%;
+  padding:12px;
+  background:#4f46e5;
+  color:white;
+  border:none;
+  border-radius:8px;
+}
+.hidden{display:none;}
+
+/* LAYOUT */
+.container{
+  display:flex;
+  height:calc(100vh - 60px);
+}
+.sidebar{
+  width:320px;
+  background:white;
+  padding:10px;
+  overflow-y:auto;
+}
+.editor{
+  flex:1;
+  padding:20px;
+}
+
+/* TREE ITEMS */
+.item{
+  background:#f8fafc;
+  margin:4px 0;
+  padding:8px;
+  border-radius:6px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.item.folder{border-left:5px solid #3b82f6;}
+.item.file{border-left:5px solid #22c55e;}
+.item:hover{background:#e0e7ff;}
+.arrow{cursor:pointer;margin-right:6px;font-weight:bold;}
+
+/* BUTTONS */
+.actions button{
+  font-size:11px;
+  margin-left:4px;
+  border:none;
+  padding:4px 6px;
+  border-radius:4px;
+  cursor:pointer;
+}
+.addF{background:#3b82f6;color:white;}
+.addFile{background:#22c55e;color:white;}
+.rename{background:#facc15;}
+.del{background:#ef4444;color:white;}
+
+/* EDITOR */
+textarea{
+  width:100%;
+  height:420px;
+  font-family:Consolas,monospace;
+  font-size:14px;
+}
+.editor button{
+  padding:6px 12px;
+  margin-right:6px;
+  background:#4f46e5;
+  color:white;
+  border:none;
+  border-radius:5px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- AUTH -->
+<div id="auth" class="auth">
+  <h2 id="authTitle">Login</h2>
+  <input id="username" placeholder="Username">
+  <input id="password" type="password" placeholder="Password">
+  <button onclick="handleAuth()">Submit</button>
+  <p style="text-align:center">
+    <a href="#" onclick="toggleAuth()">Switch Login / Register</a>
+  </p>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+<header>
+  <b>PracticeHub</b>
+  <div>
+    <span id="welcome"></span>
+    <button class="rootBtn" onclick="createFolder(null)">+ Root Folder</button>
+    <button class="shareBtn" onclick="shareWorkspace()">Share</button>
+    <button class="logoutBtn" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<div class="container">
+  <div class="sidebar" id="tree"></div>
+  <div class="editor">
+    <h3 id="fileTitle">Select a file</h3>
+    <textarea id="editor"></textarea><br><br>
+    <button onclick="saveFile()">Save</button>
+    <button onclick="copyCode()">Copy</button>
+    <button onclick="pasteCode()">Paste</button>
+  </div>
+</div>
+</div>
+
+<script>
+const API_BASE="http://localhost:8083/api";
+let isLogin=true,currentUser=null,jwtToken=null,workspace=[],currentFile=null;
+let readOnly=false;
+
+/* ================= SHARE LINK MODE ================= */
+const params=new URLSearchParams(window.location.search);
+const sharedUser=params.get("user");
+const shareId=params.get("share");
+
+if(sharedUser && shareId){
+  loadSharedWorkspace(sharedUser,shareId);
+}
+
+/* ================= AUTH ================= */
+function toggleAuth(){
+  isLogin=!isLogin;
+  authTitle.innerText=isLogin?"Login":"Register";
+}
+
+async function handleAuth(){
+  const u=username.value.trim(),p=password.value.trim();
+  if(!u||!p)return alert("Fill all fields");
+
+  if(isLogin){
+    const r=await fetch(API_BASE+"/auth/login",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({username:u,password:p})
+    });
+    if(!r.ok)return alert("Invalid login");
+    const d=await r.json();
+    currentUser=d.username;jwtToken=d.token;
+  }else{
+    await fetch(API_BASE+"/auth/register",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({username:u,email:u+"@mail.com",password:p})
+    });
+    return handleAuth();
+  }
+
+  auth.classList.add("hidden");
+  app.classList.remove("hidden");
+  welcome.innerText="Welcome "+currentUser;
+  await loadWorkspace();
+  renderTree();
+}
+
+/* ================= BACKEND ================= */
+async function saveWorkspace(){
+  if(readOnly)return;
+  await fetch(`${API_BASE}/workspace/${currentUser}`,{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "Authorization":"Bearer "+jwtToken
+    },
+    body:JSON.stringify({workspace:JSON.stringify(workspace)})
+  });
+}
+
+async function loadWorkspace(){
+  const r=await fetch(`${API_BASE}/workspace/${currentUser}`,{
+    headers:{Authorization:"Bearer "+jwtToken}
+  });
+  if(r.ok){
+    const d=await r.json();
+    workspace=JSON.parse(d.workspace||"[]");
+  }
+}
+
+/* ================= SHARING ================= */
+async function shareWorkspace(){
+  const r=await fetch(`${API_BASE}/workspace/share/${currentUser}`,{
+    headers:{Authorization:"Bearer "+jwtToken}
+  });
+  const shareKey=await r.text();
+  const link=`${location.origin}${location.pathname}?user=${currentUser}&share=${shareKey}`;
+  navigator.clipboard.writeText(link);
+  alert("Share link copied:\n"+link);
+}
+
+async function loadSharedWorkspace(user,share){
+  editor.readOnly=true;
+  auth.classList.add("hidden");
+  app.classList.remove("hidden");
+  welcome.innerText=`Viewing ${user}'s Workspace (Read Only)`;
+
+  const r=await fetch(`${API_BASE}/workspace/public/${user}/${share}`);
+  if(!r.ok)return alert("Invalid share link");
+
+  const d=await r.json();
+  workspace=JSON.parse(d.workspace||"[]");
+  renderTree();
+
+  document.querySelectorAll("button").forEach(b=>{
+    if(!b.classList.contains("logoutBtn"))b.disabled=true;
+  });
+  editor.disabled=true;
+}
+
+/* ================= CRUD ================= */
+function createFolder(parent){
+  if(readOnly)return;
+  const n=prompt("Folder name");if(!n)return;
+  workspace.push({id:Date.now(),name:n,type:"folder",parent,expanded:true});
+  saveWorkspace();renderTree();
+}
+
+function createFile(parent){
+  if(readOnly)return;
+  const n=prompt("File name");if(!n)return;
+  workspace.push({id:Date.now(),name:n,type:"file",parent,content:""});
+  saveWorkspace();renderTree();
+}
+
+function openFile(id){
+  if(currentFile && !readOnly){
+    workspace.find(x=>x.id===currentFile).content = editor.value;
+  }
+  currentFile = id;
+  const f = workspace.find(x=>x.id===id);
+  editor.value = f.content || "";
+  fileTitle.innerText = f.name;
+}
+
+
+function saveFile(){
+  if(readOnly||!currentFile)return;
+  workspace.find(x=>x.id===currentFile).content=editor.value;
+  saveWorkspace();
+}
+
+function renameItem(id){
+  if(readOnly)return;
+  const i=workspace.find(x=>x.id===id);
+  const n=prompt("New name",i.name);
+  if(n){i.name=n;saveWorkspace();renderTree();}
+}
+
+function deleteItem(id){
+  if(readOnly)return;
+  if(!confirm("Delete?"))return;
+  workspace=workspace.filter(x=>x.id!==id&&x.parent!==id);
+  saveWorkspace();renderTree();
+}
+
+/* ================= TREE ================= */
+function renderTree(){
+  tree.innerHTML="";
+  draw(null,0);
+}
+
+function draw(parent,depth){
+  workspace.filter(i=>i.parent===parent).forEach(i=>{
+    const d=document.createElement("div");
+    d.className="item "+i.type;
+    d.style.marginLeft=(depth*20)+"px";
+
+    if(i.type==="folder"){
+      d.innerHTML=`
+      <span>
+        <span class="arrow" onclick="toggleFolder(${i.id})">${i.expanded?"▼":"▶"}</span>
+        📁 ${i.name}
+      </span>
+      <span class="actions">
+        <button class="addF" onclick="event.stopPropagation();createFolder(${i.id})">+F</button>
+        <button class="addFile" onclick="event.stopPropagation();createFile(${i.id})">+File</button>
+        <button class="rename" onclick="event.stopPropagation();renameItem(${i.id})">✏</button>
+        <button class="del" onclick="event.stopPropagation();deleteItem(${i.id})">🗑</button>
+      </span>`;
+      tree.appendChild(d);
+      if(i.expanded)draw(i.id,depth+1);
+    }else{
+      d.innerHTML=`
+      <span>📄 ${i.name}</span>
+      <span class="actions">
+        <button class="rename" onclick="event.stopPropagation();renameItem(${i.id})">✏</button>
+        <button class="del" onclick="event.stopPropagation();deleteItem(${i.id})">🗑</button>
+      </span>`;
+      d.onclick=()=>openFile(i.id);
+      tree.appendChild(d);
+    }
+  });
+}
+
+function toggleFolder(id){
+  if(readOnly)return;
+  const f=workspace.find(x=>x.id===id);
+  f.expanded=!f.expanded;
+  saveWorkspace();renderTree();
+}
+
+/* ================= UTIL ================= */
+function copyCode(){navigator.clipboard.writeText(editor.value);}
+function pasteCode(){navigator.clipboard.readText().then(t=>editor.value+=t);}
+function logout(){location.href=location.pathname;}
+</script>
+
+</body>
+</html>

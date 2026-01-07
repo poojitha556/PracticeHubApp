@@ -1,0 +1,29 @@
+package com.practicehub.service;
+
+import com.practicehub.entity.Workspace;
+import com.practicehub.repository.WorkspaceRepository;
+import org.springframework.stereotype.Service;
+
+@Service
+public class WorkspaceService {
+
+    private final WorkspaceRepository repo;
+
+    public WorkspaceService(WorkspaceRepository repo) {
+        this.repo = repo;
+    }
+
+    public void save(String username, String json) {
+        Workspace ws = repo.findByUsername(username)
+                .orElse(new Workspace());
+        ws.setUsername(username);
+        ws.setData(json);
+        repo.save(ws);
+    }
+
+    public String load(String username) {
+        return repo.findByUsername(username)
+                .map(Workspace::getData)
+                .orElse("[]");
+    }
+}

@@ -1,0 +1,33 @@
+package com.practicehub.controller;
+
+import com.practicehub.entity.Workspace;
+import com.practicehub.service.WorkspaceService;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/workspace")
+@CrossOrigin
+public class WorkspaceController {
+
+    private final WorkspaceService service;
+
+    public WorkspaceController(WorkspaceService service) {
+        this.service = service;
+    }
+
+    // SAVE WORKSPACE
+    @PostMapping("/{username}")
+    public void saveWorkspace(
+            @PathVariable String username,
+            @RequestBody WorkspaceRequest request
+    ) {
+        service.save(username, request.getWorkspace());
+    }
+
+    // LOAD WORKSPACE
+    @GetMapping("/{username}")
+    public WorkspaceRequest loadWorkspace(@PathVariable String username) {
+        Workspace ws = service.findByUsername(username);
+        return new WorkspaceRequest(ws != null ? ws.getWorkspace() : "[]");
+    }
+}

@@ -1,0 +1,5 @@
+package com.practicehub.controller;
+
+public class WorkspaceRequest {
+
+}

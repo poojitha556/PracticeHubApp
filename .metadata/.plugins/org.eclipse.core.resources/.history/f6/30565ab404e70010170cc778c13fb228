@@ -1,0 +1,5 @@
+package com.practicehub.entity;
+
+public class FileEntity {
+
+}
